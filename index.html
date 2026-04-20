@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>The Cookie Tin | Final Edition</title>
+    
+    <style>
+        :root { --strawberry: #ff4d6d; --dough: #f4d35e; --mint: #a2d2ff; --chocolate: #6d4c41; }
+        body { margin: 0; font-family: 'Comic Sans MS', cursive; background: #fff5ba; overflow-x: hidden; }
+        
+        /* Animations */
+        @keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-10px); } }
+        @keyframes pop { 0% { transform: scale(0.9); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+
+        /* Envelope Styling */
+        .envelope { 
+            background: white; padding: 25px; border-radius: 40px 10px; border: 4px solid var(--dough); 
+            box-shadow: 6px 6px 0 var(--chocolate); cursor: pointer; position: relative; 
+            transition: all 0.3s ease;
+        }
+        
+        /* Animation ONLY on Hover */
+        .envelope:hover { 
+            animation: float 2s ease-in-out infinite; 
+            box-shadow: 10px 10px 0 var(--chocolate);
+        }
+
+        .status-badge { position: absolute; top: -10px; right: -10px; background: var(--strawberry); color: white; padding: 4px 10px; border-radius: 15px; font-size: 11px; border: 2px solid white; z-index: 10; }
+        .status-badge.read { background: #bbb; }
+
+        /* UI Structure */
+        nav { background: var(--strawberry); padding: 10px 30px; display: flex; justify-content: space-between; align-items: center; color: white; border-bottom: 5px solid white; }
+        .user-pill { background: white; color: var(--strawberry); padding: 5px 15px; border-radius: 25px; display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; font-weight: bold; }
+        .user-pill img { width: 30px; border-radius: 50%; }
+
+        .container { padding: 40px; display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 30px; }
+
+        .overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 100; justify-content: center; align-items: center; padding: 20px; }
+        .modal { background: white; width: 100%; max-width: 600px; max-height: 90vh; border-radius: 30px; padding: 30px; overflow-y: auto; border: 6px solid var(--dough); position: relative; animation: pop 0.3s ease-out; }
+
+        input, textarea, select { width: 100%; padding: 12px; margin-bottom: 15px; border: 2px solid var(--mint); border-radius: 15px; font-family: inherit; box-sizing: border-box; }
+        textarea { height: 150px; }
+
+        .main-btn { background: var(--strawberry); color: white; border: none; padding: 10px 25px; border-radius: 20px; font-weight: bold; cursor: pointer; box-shadow: 0 4px 0 var(--chocolate); }
+        .main-btn:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--chocolate); }
+
+        .prev-img { width: 60px; height: 60px; border-radius: 10px; object-fit: cover; margin-right: 5px; border: 2px solid var(--dough); }
+        .full-media { width: 100%; border-radius: 15px; margin-top: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); }
+        
+        .timestamp-text { font-size: 11px; color: #888; margin-top: 10px; display: block; }
+        #authSection { text-align: center; padding-top: 20vh; }
+    </style>
+</head>
+<body>
+
+<div id="authSection">
+    <h1 style="color: var(--strawberry); font-size: 3rem;">🍭 The Cookie Tin</h1>
+    <button class="main-btn" onclick="signIn()">Sign in with Google</button>
+</div>
+
+<div id="appSection" style="display: none;">
+    <nav>
+        <div style="font-size: 24px;">🍪</div>
+        <div id="userInfo"></div>
+        <button class="main-btn" onclick="openWriteModal()">Bake Letter</button>
+    </nav>
+    <div class="container" id="envelopeGrid"></div>
+</div>
+
+<div class="overlay" id="writeOverlay">
+    <div class="modal">
+        <h2 style="color:var(--strawberry); text-align:center;">New Batch 🍬</h2>
+        <input type="text" id="titleInput" placeholder="Letter Title...">
+        <select id="toSelect"></select>
+        <textarea id="letterBody" placeholder="The sweet stuff..."></textarea>
+        <div id="writePreview" style="margin-bottom:15px; display:flex;"></div>
+        <div style="display:flex; flex-wrap:wrap; gap:10px;">
+            <input type="file" id="fInput" multiple style="display:none" onchange="handleFiles(event)">
+            <button class="main-btn" style="background:var(--mint)" onclick="document.getElementById('fInput').click()">📎 Media</button>
+            <button class="main-btn" style="background:var(--dough)" id="startRec" onclick="startVoice()">🎤 Record</button>
+            <button class="main-btn" style="background:red; display:none" id="stopRec" onclick="stopVoice()">🛑 Stop</button>
+            <button class="main-btn" id="sendBtn" onclick="sendLetter()" style="margin-left:auto">Send 💌</button>
+        </div>
+        <center><button onclick="closeModals()" style="background:none; border:none; margin-top:15px; cursor:pointer; color:#999">Cancel</button></center>
+    </div>
+</div>
+
+<div class="overlay" id="readOverlay">
+    <div class="modal" id="readArea"></div>
+</div>
+
+<script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getFirestore, collection, addDoc, onSnapshot, query, orderBy, updateDoc, doc, getDocs, setDoc, getDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+    const firebaseConfig = {
+  apiKey: "AIzaSyCkhDr_uUIJ7fWRw4DGFOMqvK7MhHMlNqo",
+  authDomain: "letter-ea5d5.firebaseapp.com",
+  projectId: "letter-ea5d5",
+  storageBucket: "letter-ea5d5.firebasestorage.app",
+  messagingSenderId: "1023999067326",
+  appId: "1:1023999067326:web:b33154b6e6886247fb0aef"
+};
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+    const auth = getAuth(app);
+    const provider = new GoogleAuthProvider();
+
+    let currentUser = null;
+    let mediaArray = [];
+    let mediaRecorder;
+    let audioChunks = [];
+
+    // --- AUTH ---
+    window.signIn = () => signInWithPopup(auth, provider);
+
+    onAuthStateChanged(auth, async (user) => {
+        if (user) {
+            currentUser = user;
+            document.getElementById('authSection').style.display = 'none';
+            document.getElementById('appSection').style.display = 'block';
+            
+            const userRef = doc(db, "users", user.uid);
+            const userSnap = await getDoc(userRef);
+            let name = userSnap.exists() && userSnap.data().customName ? userSnap.data().customName : user.displayName;
+            
+            if (!userSnap.exists()) await setDoc(userRef, { name: user.displayName, uid: user.uid, email: user.email }, { merge: true });
+
+            document.getElementById('userInfo').innerHTML = `
+                <div class="user-pill" onclick="changeName()">
+                    <img src="${user.photoURL}">
+                    <span>${name}</span>
+                </div>
+            `;
+            loadEnvelopes();
+        }
+    });
+
+    window.changeName = async () => {
+        const n = prompt("Change Bakery Name:");
+        if (n) {
+            await setDoc(doc(db, "users", currentUser.uid), { customName: n }, { merge: true });
+            location.reload();
+        }
+    };
+
+    // --- MEDIA ---
+    window.handleFiles = async (e) => {
+        const files = Array.from(e.target.files);
+        for (let f of files) {
+            const reader = new FileReader();
+            reader.readAsDataURL(f);
+            reader.onload = () => {
+                mediaArray.push(reader.result);
+                const prev = document.getElementById('writePreview');
+                if(reader.result.includes("image")) prev.innerHTML += `<img src="${reader.result}" class="prev-img">`;
+                else prev.innerHTML += `<div class="prev-img" style="background:var(--dough); display:flex; align-items:center; justify-content:center;">📎</div>`;
+            }
+        }
+    };
+
+    window.startVoice = async () => {
+        const s = await navigator.mediaDevices.getUserMedia({ audio: true });
+        mediaRecorder = new MediaRecorder(s);
+        audioChunks = [];
+        mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+        mediaRecorder.onstop = async () => {
+            const b = new Blob(audioChunks, { type: 'audio/mp3' });
+            const reader = new FileReader();
+            reader.readAsDataURL(b);
+            reader.onload = () => {
+                mediaArray.push(reader.result);
+                document.getElementById('writePreview').innerHTML += `<div class="prev-img" style="background:var(--strawberry); color:white; display:flex; align-items:center; justify-content:center;">🎤</div>`;
+            };
+        };
+        mediaRecorder.start();
+        document.getElementById('startRec').style.display='none';
+        document.getElementById('stopRec').style.display='inline-block';
+    };
+
+    window.stopVoice = () => { mediaRecorder.stop(); document.getElementById('stopRec').style.display='none'; document.getElementById('startRec').style.display='inline-block'; };
+
+    // --- DATABASE ---
+    window.sendLetter = async () => {
+        const to = document.getElementById('toSelect').value;
+        const uSnap = await getDoc(doc(db, "users", currentUser.uid));
+        const sName = uSnap.data().customName || currentUser.displayName;
+
+        await addDoc(collection(db, "letters"), {
+            title: document.getElementById('titleInput').value || "Untitled",
+            body: document.getElementById('letterBody').value,
+            fromName: sName,
+            fromUid: currentUser.uid,
+            toUid: to,
+            mediaList: mediaArray,
+            timestamp: serverTimestamp(),
+            status: "unread"
+        });
+        location.reload();
+    };
+
+    function loadEnvelopes() {
+        const q = query(collection(db, "letters"), orderBy("timestamp", "desc"));
+        onSnapshot(q, (snap) => {
+            const grid = document.getElementById('envelopeGrid');
+            grid.innerHTML = '';
+            snap.forEach(doc => {
+                const d = doc.data();
+                if (d.fromUid === currentUser.uid || d.toUid === currentUser.uid) {
+                    const timeStr = d.timestamp ? d.timestamp.toDate().toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : "Just now";
+                    const div = document.createElement('div');
+                    div.className = 'envelope';
+                    div.onclick = () => window.showLetter(doc.id, d);
+                    div.innerHTML = `
+                        <div class="status-badge ${d.status}">${d.status}</div>
+                        <h3>${d.title}</h3>
+                        <p style="margin:0; font-size:13px;">From: ${d.fromName}</p>
+                        <span class="timestamp-text">${timeStr}</span>
+                    `;
+                    grid.appendChild(div);
+                }
+            });
+        });
+    }
+
+    // ATTACH TO WINDOW SO ONCLICK WORKS
+    window.showLetter = async (id, d) => {
+        const timeStr = d.timestamp ? d.timestamp.toDate().toLocaleString() : "Recently";
+        let mediaHtml = "";
+        d.mediaList.forEach(m => {
+            if(m.includes("image")) mediaHtml += `<img src="${m}" class="full-media">`;
+            else if(m.includes("audio")) mediaHtml += `<audio controls src="${m}" class="full-media"></audio>`;
+            else if(m.includes("video")) mediaHtml += `<video controls src="${m}" class="full-media"></video>`;
+        });
+
+        document.getElementById('readArea').innerHTML = `
+            <small style="color:#aaa">${timeStr}</small>
+            <h2 style="color:var(--strawberry); margin-top:5px;">${d.title}</h2>
+            <p><b>From:</b> ${d.fromName}</p>
+            <div style="border-top:2px dashed var(--dough); padding-top:15px; white-space:pre-wrap;">${d.body}</div>
+            ${mediaHtml}
+            <center><button class="main-btn" onclick="window.closeModals()" style="margin-top:20px;">Fold Letter</button></center>
+        `;
+        document.getElementById('readOverlay').style.display = 'flex';
+        
+        if (currentUser.uid === d.toUid && d.status === "unread") {
+            await updateDoc(doc(db, "letters", id), { status: "read" });
+        }
+    };
+
+    window.openWriteModal = async () => {
+        const snap = await getDocs(collection(db, "users"));
+        const select = document.getElementById('toSelect');
+        select.innerHTML = '';
+        snap.forEach(u => {
+            if(u.data().uid !== currentUser.uid) {
+                select.innerHTML += `<option value="${u.data().uid}">${u.data().customName || u.data().name}</option>`;
+            }
+        });
+        document.getElementById('writeOverlay').style.display = 'flex';
+    };
+
+    window.closeModals = () => { document.querySelectorAll('.overlay').forEach(o => o.style.display='none'); };
+</script>
+</body>
+</html>
