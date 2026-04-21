@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Cookie Chat | Pro Edition</title>
+    <style>
+        :root { --strawberry: #ff4d6d; --dough: #f4d35e; --mint: #a2d2ff; --choc: #6d4c41; --cream: #fffdf0; }
+        body, html { margin: 0; height: 100%; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: var(--cream); overflow: hidden; }
+        .chat-app { display: flex; flex-direction: column; height: 100vh; position: relative; }
+        
+        nav { background: var(--strawberry); color: white; padding: 10px 15px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); z-index: 10; }
+        .nav-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+        .user-selector { background: white; border-radius: 12px; padding: 8px; width: 100%; border: 3px solid var(--dough); outline: none; font-weight: bold; }
+        
+        #chatDisplay { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 20px; scroll-behavior: smooth; }
+        #loadMoreBtn { align-self: center; background: var(--mint); color: white; border: none; padding: 8px 16px; border-radius: 20px; font-size: 12px; font-weight: bold; cursor: pointer; margin-bottom: 10px; display: none; }
+
+        .msg-container { display: flex; flex-direction: column; position: relative; max-width: 50%; transition: transform 0.2s; }
+        .msg-container.sent { align-self: flex-end; align-items: flex-end; }
+        .msg-container.received { align-self: flex-start; align-items: flex-start; }
+
+        .msg { padding: 12px 16px; border-radius: 18px; font-size: 14px; line-height: 1.4; box-shadow: 0 2px 5px rgba(0,0,0,0.05); 
+               width: fit-content; max-width: 100%; max-height: 220px; overflow-y: auto; word-wrap: break-word; scrollbar-width: none; }
+        .sent .msg { background: var(--strawberry); color: white; border-bottom-right-radius: 2px; }
+        .received .msg { background: white; border: 2px solid var(--mint); border-bottom-left-radius: 2px; color: var(--choc); }
+        
+        /* Fix for glitching audio bar */
+        .audio-wrapper { width: 220px; max-width: 100%; padding-top: 5px; }
+        audio { width: 100%; height: 35px; outline: none; }
+
+        .msg-status { font-size: 10px; margin-top: 4px; font-weight: bold; color: #888; }
+        .sent .msg-status.read { color: var(--mint); }
+
+        @keyframes reply-highlight {
+            0% { background-color: var(--dough); transform: scale(1.02); box-shadow: 0 0 15px var(--dough); }
+            100% { background-color: transparent; transform: scale(1); box-shadow: none; }
+        }
+        .jump-flash .msg { animation: reply-highlight 2s ease-out; }
+
+        .input-box { background: white; padding: 12px; display: flex; align-items: center; gap: 10px; border-top: 3px dashed var(--dough); }
+        .input-box input[type="text"] { flex: 1; border: 2px solid var(--mint); border-radius: 25px; padding: 12px 20px; outline: none; }
+        .btn { width: 45px; height: 45px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 20px; color: white; }
+        .rec-active { background: #ff3b3b !important; animation: pulse 1s infinite; }
+        
+        .chat-img-thumb { width: 100%; max-height: 180px; object-fit: cover; border-radius: 10px; margin-top: 5px; cursor: pointer; }
+        #imageModal { display: none; position: fixed; z-index: 1000; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); justify-content: center; align-items: center; }
+        #modalImg { max-width: 95%; max-height: 85%; }
+        
+        .action-popup { position: absolute; background: white; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); display: none; flex-direction: column; z-index: 100; min-width: 110px; }
+        .action-popup button { border: none; background: none; padding: 12px; text-align: left; cursor: pointer; font-size: 13px; }
+        .emoji-bar { display: none; position: absolute; background: white; border-radius: 25px; padding: 5px 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); gap: 12px; z-index: 101; transform: translateY(-50px); }
+        .emoji-bar span { cursor: pointer; font-size: 20px; }
+        .reaction-pill { display: flex; gap: 5px; background: white; border: 1px solid #ddd; border-radius: 15px; padding: 2px 8px; font-size: 11px; margin-top: -10px; z-index: 2; }
+    </style>
+</head>
+<body onclick="window.closeAllPopups()">
+
+<div class="chat-app">
+    <nav>
+        <div class="nav-top">
+            <span onclick="location.href='letter.html'" style="cursor:pointer; font-weight:bold;">🍪 SEND A LETTER</span>
+            <div id="targetStatus" style="font-size: 12px; font-weight: bold;">Offline</div>
+        </div>
+        <select id="userDropdown" class="user-selector"></select>
+    </nav>
+
+    <div id="chatDisplay">
+        <button id="loadMoreBtn" onclick="window.loadMore()">Load Previous Messages</button>
+    </div>
+    
+    <div id="typingIndicator" style="height:25px; font-size:12px; padding:0 25px; font-style:italic; color: var(--choc);"></div>
+
+    <div id="replyPreview" style="display:none; background: var(--dough); padding: 10px 15px; justify-content: space-between; font-size: 12px; font-weight: bold;">
+        <span>Replying: <span id="replyTxt"></span></span>
+        <button onclick="window.cancelReply()" style="border:none; background:none; cursor:pointer;">✕</button>
+    </div>
+
+    <div class="input-box">
+        <button class="btn" style="background:var(--mint)" onclick="document.getElementById('fileIn').click()">📎</button>
+        <input type="file" id="fileIn" hidden onchange="window.handleUpload(event)">
+        <input type="text" id="msgInput" placeholder="Enter to send..." oninput="window.handleTyping()" onkeydown="window.handleKeydown(event)">
+        <button class="btn" id="micBtn" style="background:var(--dough)" onclick="window.toggleRecord()">🎤</button>
+        <button class="btn" style="background:var(--strawberry)" onclick="window.sendMsg()">🍓</button>
+    </div>
+</div>
+
+<div id="imageModal" onclick="this.style.display='none'"><img id="modalImg" src=""></div>
+<div id="msgActionPopup" class="action-popup" onclick="event.stopPropagation()">
+    <button id="replyBtn">Reply</button>
+    <button id="reactBtn">React</button>
+</div>
+<div id="emojiPicker" class="emoji-bar" onclick="event.stopPropagation()">
+    <span onclick="window.submitReaction('❤️')">❤️</span>
+    <span onclick="window.submitReaction('😂')">😂</span>
+    <span onclick="window.submitReaction('😮')">😮</span>
+    <span onclick="window.submitReaction('🔥')">🔥</span>
+</div>
+
+<script type="module">
+   // import { firebaseConfig } from './config.js';
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+    import { getDatabase, ref, set, push, onValue, off, onDisconnect, query, limitToLast, get as rGet } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+    import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
+    import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCkhDr_uUIJ7fWRw4DGFOMqvK7MhHMlNqo",
+  authDomain: "letter-ea5d5.firebaseapp.com",
+  databaseURL:"https://letter-ea5d5-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "letter-ea5d5",
+  storageBucket: "letter-ea5d5.firebasestorage.app",
+  messagingSenderId: "1023999067326",
+  appId: "1:1023999067326:web:b33154b6e6886247fb0aef",
+};
+
+
+    const app = initializeApp(firebaseConfig);
+    const rdb = getDatabase(app);
+    const fs = getFirestore(app);
+    const auth = getAuth(app);
+
+    let currentUser, targetUid, chatRoomId, activeMsgKey, replyingToData, replyingToKey, mediaRecorder, audioChunks = [], typingTimeout;
+    let messageLimit = 50;
+    let targetLastRead = 0;
+
+    onAuthStateChanged(auth, async (user) => {
+        if (!user) return location.href = 'index.html';
+        currentUser = user;
+        targetUid = localStorage.getItem('lastChatPartner');
+        await setDoc(doc(fs, "users", user.uid), { name: user.displayName, uid: user.uid }, { merge: true });
+        setupMyPresence();
+        listenToUserList();
+    });
+
+    // FIX: Only mark as read if the tab is visible
+    function updateMyReadReceipt() {
+        if (!chatRoomId || !currentUser || document.visibilityState !== 'visible') return;
+        set(ref(rdb, `readReceipts/${chatRoomId}/${currentUser.uid}`), Date.now());
+    }
+
+    // Add event listener for tab switching
+    document.addEventListener('visibilitychange', updateMyReadReceipt);
+
+    function setupMyPresence() {
+        const statusRef = ref(rdb, `presence/${currentUser.uid}`);
+        set(statusRef, { state: 'online', last_seen: Date.now() });
+        onDisconnect(statusRef).set({ state: 'offline', last_seen: Date.now() });
+    }
+
+    function listenToUserList() {
+        const select = document.getElementById('userDropdown');
+        onSnapshot(collection(fs, "users"), (snap) => {
+            select.innerHTML = '<option value="">-- Choose a Baker --</option>';
+            snap.forEach(u => {
+                if (u.id !== currentUser.uid) {
+                    const opt = document.createElement('option');
+                    opt.value = u.id; opt.textContent = u.data().name || "Baker";
+                    if (u.id === targetUid) opt.selected = true;
+                    select.appendChild(opt);
+                }
+            });
+            if (targetUid) triggerChatSwitch(targetUid);
+        });
+        select.onchange = (e) => triggerChatSwitch(e.target.value);
+    }
+
+    function triggerChatSwitch(uid) {
+        targetUid = uid;
+        localStorage.setItem('lastChatPartner', uid);
+        chatRoomId = [currentUser.uid, targetUid].sort().join("_");
+        messageLimit = 50; 
+        startChatSession();
+    }
+
+    function startChatSession() {
+        updateMyReadReceipt();
+        onValue(ref(rdb, `presence/${targetUid}`), snap => {
+            document.getElementById('targetStatus').innerText = snap.val()?.state === 'online' ? 'Online' : 'Offline';
+        });
+
+        // Listen for Partner's Read Receipt
+        onValue(ref(rdb, `readReceipts/${chatRoomId}/${targetUid}`), snap => {
+            targetLastRead = snap.val() || 0;
+            startChatSessionInternal();
+        });
+
+        off(ref(rdb, `typing/${chatRoomId}/${targetUid}`));
+        onValue(ref(rdb, `typing/${chatRoomId}/${targetUid}`), snap => {
+            document.getElementById('typingIndicator').innerText = snap.val() === true ? "Partner is typing..." : "";
+        });
+
+        startChatSessionInternal();
+    }
+
+    function startChatSessionInternal() {
+        const msgPath = `chats/${chatRoomId}`;
+        off(ref(rdb, msgPath));
+        const msgQuery = query(ref(rdb, msgPath), limitToLast(messageLimit));
+        onValue(msgQuery, snap => {
+            const display = document.getElementById('chatDisplay');
+            const btn = document.getElementById('loadMoreBtn');
+            display.innerHTML = '';
+            display.appendChild(btn); 
+            if(snap.size >= messageLimit) btn.style.display = 'block';
+            else btn.style.display = 'none';
+            snap.forEach(child => renderMsg(child.val(), child.key));
+            if(messageLimit === 50) display.scrollTop = display.scrollHeight;
+            updateMyReadReceipt();
+        });
+    }
+
+    window.toggleRecord = async () => {
+        const btn = document.getElementById('micBtn');
+        if (mediaRecorder && mediaRecorder.state === "recording") {
+            mediaRecorder.stop();
+            btn.classList.remove('rec-active');
+            return;
+        }
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaRecorder = new MediaRecorder(stream);
+            audioChunks = [];
+            mediaRecorder.ondataavailable = e => { if (e.data.size > 0) audioChunks.push(e.data); };
+            mediaRecorder.onstop = () => {
+                const reader = new FileReader();
+                reader.readAsDataURL(new Blob(audioChunks, { type: 'audio/webm' }));
+                reader.onloadend = () => {
+                    push(ref(rdb, `chats/${chatRoomId}`), { uid: currentUser.uid, audio: reader.result, timestamp: Date.now() });
+                };
+                stream.getTracks().forEach(t => t.stop());
+            };
+            mediaRecorder.start();
+            btn.classList.add('rec-active');
+        } catch (err) { alert("Mic Access Denied."); }
+    };
+
+    window.handleKeydown = (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); window.sendMsg(); } };
+    window.handleTyping = () => {
+        if (!chatRoomId) return;
+        set(ref(rdb, `typing/${chatRoomId}/${currentUser.uid}`), true);
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => set(ref(rdb, `typing/${chatRoomId}/${currentUser.uid}`), false), 2000);
+    };
+
+    window.sendMsg = () => {
+        const input = document.getElementById('msgInput');
+        if (!input.value.trim() || !chatRoomId) return;
+        const payload = { uid: currentUser.uid, text: input.value, timestamp: Date.now() };
+        if (replyingToData) { payload.replyToText = replyingToData; payload.replyToKey = replyingToKey; window.cancelReply(); }
+        push(ref(rdb, `chats/${chatRoomId}`), payload);
+        input.value = "";
+        set(ref(rdb, `typing/${chatRoomId}/${currentUser.uid}`), false);
+    };
+
+    function renderMsg(msg, key) {
+        const display = document.getElementById('chatDisplay');
+        const container = document.createElement('div');
+        const isMe = msg.uid === currentUser.uid;
+        container.className = `msg-container ${isMe ? 'sent' : 'received'}`;
+        container.id = `msg-${key}`;
+        container.ondblclick = () => window.setReply(msg.text || "Media", key);
+
+        let statusText = isMe ? (msg.timestamp <= targetLastRead ? "Read" : "Delivered") : "";
+
+        let html = `
+            <div class="msg-tools" onclick="window.openMsgMenu(event, '${key}', '${msg.text || 'Media'}')">⋮</div>
+            <div class="msg">
+                ${msg.replyToText ? `<div class="reply-tag" style="font-size:11px; opacity:0.8; background:rgba(0,0,0,0.1); padding:5px; border-radius:5px; margin-bottom:5px; cursor:pointer;" onclick="window.jumpToMessage('${msg.replyToKey}')">↲ ${msg.replyToText}</div>` : ''}
+                ${msg.text ? `<div>${msg.text}</div>` : ''}
+                ${msg.audio ? `<div class="audio-wrapper"><audio controls src="${msg.audio}"></audio></div>` : ''}
+                ${msg.media ? `<img src="${msg.media}" class="chat-img-thumb" onclick="window.openFullImage(this.src)">` : ''}
+            </div>
+            ${isMe ? `<div class="msg-status ${statusText.toLowerCase()}">${statusText}</div>` : ''}
+        `;
+        if (msg.reactions) {
+            html += '<div class="reaction-pill">';
+            for (let emoji in msg.reactions) html += `<span>${emoji} ${msg.reactions[emoji]}</span>`;
+            html += '</div>';
+        }
+        container.innerHTML = html;
+        display.appendChild(container);
+    }
+
+    window.jumpToMessage = (key) => {
+        const el = document.getElementById(`msg-${key}`);
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            el.classList.add('jump-flash');
+            setTimeout(() => el.classList.remove('jump-flash'), 2000);
+        } else {
+            alert("Older message. Click 'Load Previous Messages'!");
+        }
+    };
+
+    window.loadMore = () => { messageLimit += 50; startChatSession(); };
+    window.openFullImage = (src) => { document.getElementById('modalImg').src = src; document.getElementById('imageModal').style.display = 'flex'; };
+    window.setReply = (text, key) => {
+        replyingToData = text; replyingToKey = key;
+        document.getElementById('replyPreview').style.display = 'flex';
+        document.getElementById('replyTxt').innerText = text.length > 25 ? text.substring(0, 25) + "..." : text;
+        document.getElementById('msgInput').focus();
+    };
+    window.cancelReply = () => { replyingToData = replyingToKey = null; document.getElementById('replyPreview').style.display = 'none'; };
+    window.handleUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => push(ref(rdb, `chats/${chatRoomId}`), { uid: currentUser.uid, media: reader.result, timestamp: Date.now() });
+        reader.readAsDataURL(file);
+    };
+    window.openMsgMenu = (e, key, text) => {
+        e.stopPropagation(); window.closeAllPopups();
+        activeMsgKey = key;
+        const popup = document.getElementById('msgActionPopup');
+        popup.style.display = 'flex';
+        popup.style.left = Math.min(e.pageX, window.innerWidth - 120) + 'px';
+        popup.style.top = e.pageY + 'px';
+        document.getElementById('replyBtn').onclick = () => { window.setReply(text, key); window.closeAllPopups(); };
+        document.getElementById('reactBtn').onclick = (ev) => { ev.stopPropagation(); document.getElementById('emojiPicker').style.display = 'flex'; };
+    };
+    window.submitReaction = (emoji) => {
+        const path = `chats/${chatRoomId}/${activeMsgKey}/reactions/${emoji}`;
+        rGet(ref(rdb, path)).then(snap => set(ref(rdb, path), (snap.val() || 0) + 1));
+        window.closeAllPopups();
+    };
+    window.closeAllPopups = () => { document.getElementById('msgActionPopup').style.display = 'none'; document.getElementById('emojiPicker').style.display = 'none'; };
+</script>
+</body>
+</html>
