@@ -25,14 +25,63 @@
         audio { width: 100%; height: 32px; outline: none; }
         .msg-status { font-size: 10px; margin-top: 4px; font-weight: bold; color: #888; }
         .msg-status.read { color: var(--mint); }
-        .input-box { background: white; padding: 10px; display: flex; align-items: center; gap: 8px; border-top: 2px solid var(--dough); flex-shrink: 0; }
+        .input-box { background: white; padding: 10px; display: flex; align-items: center; gap: 8px; border-top: 2px solid var(--dough); flex-shrink: 0; position: relative; }
         .input-box input[type="text"] { flex: 1; border: 2px solid var(--mint); border-radius: 25px; padding: 10px 15px; outline: none; font-size: 16px; }
         .btn { width: 40px; height: 40px; border-radius: 50%; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 18px; color: white; flex-shrink: 0; }
         #replyPreview { display:none; background: var(--dough); padding: 8px 15px; justify-content: space-between; font-size: 11px; font-weight: bold; }
         .chat-img { width: 100%; max-width: 250px; border-radius: 10px; margin-top: 5px; display: block; }
+
+        /* ── LOAD MORE ── */
+        #loadMoreWrapper { display: none; justify-content: center; padding: 8px 0 0; }
+        #loadMoreBtn {
+            background: white; border: 2px solid var(--mint); color: var(--choc);
+            border-radius: 20px; padding: 6px 18px; font-size: 12px; font-weight: bold;
+            cursor: pointer; display: flex; align-items: center; gap: 6px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08); transition: background 0.2s;
+        }
+        #loadMoreBtn:hover { background: var(--mint); }
+        #loadMoreBtn:disabled { opacity: 0.5; cursor: default; }
+        #loadMoreBtn .spinner { display: none; width: 14px; height: 14px; border: 2px solid var(--mint); border-top-color: var(--choc); border-radius: 50%; animation: spin 0.7s linear infinite; }
+        #loadMoreBtn.loading .spinner { display: block; }
+        #loadMoreBtn.loading .lm-text { display: none; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ── EMOJI PICKER ── */
+        #emojiBtn { background: var(--dough); }
+        #emojiPicker {
+            display: none; position: absolute; bottom: 62px; left: 8px;
+            width: 300px; max-height: 280px;
+            background: white; border-radius: 16px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.18);
+            border: 2px solid var(--dough);
+            z-index: 100; flex-direction: column; overflow: hidden;
+        }
+        #emojiPicker.open { display: flex; }
+        .emoji-tabs { display: flex; border-bottom: 2px solid var(--dough); overflow-x: auto; scrollbar-width: none; }
+        .emoji-tabs::-webkit-scrollbar { display: none; }
+        .emoji-tab {
+            flex-shrink: 0; padding: 8px 12px; font-size: 18px; cursor: pointer;
+            border: none; background: none; transition: background 0.15s;
+        }
+        .emoji-tab.active { background: var(--dough); border-radius: 10px 10px 0 0; }
+        .emoji-tab:hover { background: #fff5ba; }
+        #emojiSearch {
+            margin: 8px; padding: 6px 12px; border: 2px solid var(--mint);
+            border-radius: 20px; outline: none; font-size: 13px; flex-shrink: 0;
+        }
+        .emoji-grid {
+            display: flex; flex-wrap: wrap; gap: 2px;
+            padding: 4px 8px 8px; overflow-y: auto; flex: 1;
+        }
+        .emoji-item {
+            font-size: 22px; padding: 4px; cursor: pointer;
+            border-radius: 8px; line-height: 1; border: none; background: none;
+            transition: background 0.1s;
+        }
+        .emoji-item:hover { background: var(--dough); }
     </style>
 </head>
-<body onclick="window.closeAllPopups()">
+<body onclick="window.closeAllPopups(event)">
 
 <div id="authSection">
     <h1 style="color: var(--strawberry); font-size: 2.5rem;">🍭 Cookie Chat</h1>
@@ -51,6 +100,14 @@
         <select id="userDropdown" class="user-selector"></select>
     </nav>
 
+    <!-- Load More -->
+    <div id="loadMoreWrapper">
+        <button id="loadMoreBtn" onclick="window.loadMoreMessages()">
+            <div class="spinner"></div>
+            <span class="lm-text">⬆ Load older messages</span>
+        </button>
+    </div>
+
     <div id="chatDisplay"></div>
     <div id="typingIndicator" style="height:20px; font-size:11px; padding:0 15px; font-style:italic;"></div>
 
@@ -60,8 +117,17 @@
     </div>
 
     <div class="input-box">
+        <!-- Emoji Picker Popup -->
+        <div id="emojiPicker" onclick="event.stopPropagation()">
+            <div class="emoji-tabs" id="emojiTabs"></div>
+            <input id="emojiSearch" type="text" placeholder="🔍 Search emoji…" oninput="window.filterEmoji(this.value)">
+            <div class="emoji-grid" id="emojiGrid"></div>
+        </div>
+
         <input type="file" id="fileIn" hidden onchange="window.handleUpload(event)">
         <button class="btn" style="background:var(--mint)" onclick="document.getElementById('fileIn').click()">📎</button>
+        <!-- Emoji button -->
+        <button class="btn" id="emojiBtn" onclick="window.toggleEmojiPicker(event)" title="Emoji">😊</button>
         <input type="text" id="msgInput" placeholder="Message or Paste Image..." oninput="window.handleTyping()" onkeydown="window.handleKeydown(event)">
         <button class="btn" id="micBtn" style="background:var(--dough)" onclick="window.toggleRecord()">🎤</button>
         <button id="sendBtn" class="btn" style="background:var(--strawberry)" onclick="window.sendMsg()">🍓</button>
@@ -70,7 +136,7 @@
 
 <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-    import { getDatabase, ref, set, push, onValue, off, onDisconnect, query, limitToLast, get as rGet } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+    import { getDatabase, ref, set, push, onValue, off, onDisconnect, query, limitToLast, endBefore, get as rGet, orderByKey } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
     import { getFirestore, collection, doc, setDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
     import { getAuth, onAuthStateChanged, signInWithPopup, GoogleAuthProvider } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js";
 
@@ -94,6 +160,11 @@
     let targetLastRead = 0;
     let isUserAtBottom = true;
     let pendingUpdate = false;
+
+    // Load more state
+    let oldestLoadedKey = null;
+    let PAGE_SIZE = 50;
+    let hasMoreMessages = false;
 
     const chatDisplay = document.getElementById('chatDisplay');
     const msgInput = document.getElementById('msgInput');
@@ -161,6 +232,7 @@
         targetUid = uid;
         localStorage.setItem('lastChatPartner', uid);
         chatRoomId = [currentUser.uid, targetUid].sort().join("_");
+        oldestLoadedKey = null;
         
         onValue(ref(rdb, `presence/${targetUid}`), snap => {
             document.getElementById('targetStatus').innerText = snap.val()?.state === 'online' ? 'Online' : 'Offline';
@@ -172,7 +244,7 @@
         });
 
         off(ref(rdb, `chats/${chatRoomId}`));
-        onValue(query(ref(rdb, `chats/${chatRoomId}`), limitToLast(50)), () => refreshChatUI());
+        onValue(query(ref(rdb, `chats/${chatRoomId}`), limitToLast(PAGE_SIZE)), () => refreshChatUI());
     }
 
     function updateStatusLabels() {
@@ -191,16 +263,85 @@
         const activeAudio = Array.from(document.querySelectorAll('audio')).some(a => !a.paused);
         if (activeAudio) { pendingUpdate = true; return; }
 
-        rGet(query(ref(rdb, `chats/${chatRoomId}`), limitToLast(50))).then(snap => {
+        rGet(query(ref(rdb, `chats/${chatRoomId}`), limitToLast(PAGE_SIZE))).then(snap => {
             chatDisplay.innerHTML = '';
-            snap.forEach(child => renderMsg(child.val(), child.key));
+            oldestLoadedKey = null;
+            let firstKey = null;
+            snap.forEach(child => {
+                if (!firstKey) firstKey = child.key;
+                if (!oldestLoadedKey) oldestLoadedKey = child.key;
+                renderMsg(child.val(), child.key);
+            });
+            oldestLoadedKey = firstKey;
+
+            // Check if there could be more messages
+            checkHasMore();
+
             if (isUserAtBottom) chatDisplay.scrollTop = chatDisplay.scrollHeight;
             pendingUpdate = false;
             set(ref(rdb, `readReceipts/${chatRoomId}/${currentUser.uid}`), Date.now());
         });
     }
 
-    function renderMsg(msg, key) {
+    async function checkHasMore() {
+        if (!oldestLoadedKey) { showLoadMore(false); return; }
+        // Try to fetch 1 message before the oldest key
+        const snap = await rGet(query(ref(rdb, `chats/${chatRoomId}`), orderByKey(), endBefore(oldestLoadedKey), limitToLast(1)));
+        hasMoreMessages = snap.exists();
+        showLoadMore(hasMoreMessages);
+    }
+
+    function showLoadMore(show) {
+        document.getElementById('loadMoreWrapper').style.display = show ? 'flex' : 'none';
+    }
+
+    window.loadMoreMessages = async () => {
+        if (!oldestLoadedKey || !chatRoomId) return;
+        const btn = document.getElementById('loadMoreBtn');
+        btn.disabled = true;
+        btn.classList.add('loading');
+
+        try {
+            const snap = await rGet(query(
+                ref(rdb, `chats/${chatRoomId}`),
+                orderByKey(),
+                endBefore(oldestLoadedKey),
+                limitToLast(PAGE_SIZE)
+            ));
+
+            if (!snap.exists()) { showLoadMore(false); return; }
+
+            // Prepend messages before the current oldest
+            const anchor = chatDisplay.firstChild;
+            const prevScrollHeight = chatDisplay.scrollHeight;
+
+            let newOldestKey = null;
+            const msgs = [];
+            snap.forEach(child => {
+                if (!newOldestKey) newOldestKey = child.key;
+                msgs.push({ val: child.val(), key: child.key });
+            });
+
+            // Insert in order (oldest first), before current messages
+            msgs.forEach(({ val, key }) => {
+                const el = buildMsgElement(val, key);
+                chatDisplay.insertBefore(el, anchor);
+            });
+
+            oldestLoadedKey = newOldestKey;
+
+            // Keep scroll position stable
+            chatDisplay.scrollTop += chatDisplay.scrollHeight - prevScrollHeight;
+
+            // Check if even more exist
+            await checkHasMore();
+        } finally {
+            btn.disabled = false;
+            btn.classList.remove('loading');
+        }
+    };
+
+    function buildMsgElement(msg, key) {
         const container = document.createElement('div');
         const isMe = msg.uid === currentUser.uid;
         container.className = `msg-container ${isMe ? 'sent' : 'received'}`;
@@ -219,7 +360,11 @@
             </div>
             ${isMe ? `<div class="msg-status ${isRead ? 'read' : ''}">${isRead ? 'Read' : 'Delivered'}</div>` : ''}
         `;
-        chatDisplay.appendChild(container);
+        return container;
+    }
+
+    function renderMsg(msg, key) {
+        chatDisplay.appendChild(buildMsgElement(msg, key));
     }
 
     window.handleAudioStop = () => { if (pendingUpdate) refreshChatUI(); };
@@ -277,6 +422,87 @@
     };
 
     window.signOutUser = () => auth.signOut().then(() => location.reload());
+
+    // ── EMOJI PICKER ──────────────────────────────────────────────
+    const EMOJI_CATEGORIES = [
+        { icon: '😀', label: 'Smileys', emojis: ['😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥸','😎','🤓','🧐','😕','😟','🙁','☹️','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','😫','🥱','😤','😡','😠','🤬','😈','👿'] },
+        { icon: '❤️', label: 'Hearts', emojis: ['❤️','🧡','💛','💚','💙','💜','🖤','🤍','🤎','💔','❣️','💕','💞','💓','💗','💖','💘','💝','💟','♥️','🫀','💋','💌','💏','💑'] },
+        { icon: '👍', label: 'Hands', emojis: ['👋','🤚','🖐','✋','🖖','👌','🤌','🤏','✌️','🤞','🤟','🤘','🤙','👈','👉','👆','🖕','👇','☝️','👍','👎','✊','👊','🤛','🤜','👏','🙌','🫶','👐','🤲','🤝','🙏','✍️','💅','🤳','💪','🦾','🦵','🦶','👂','🦻','👃','🫦','👁','👅','🫁','🫀','🧠','🦷','🦴'] },
+        { icon: '🐶', label: 'Animals', emojis: ['🐶','🐱','🐭','🐹','🐰','🦊','🐻','🐼','🐨','🐯','🦁','🐮','🐷','🐸','🐵','🙈','🙉','🙊','🐔','🐧','🐦','🐤','🦆','🦅','🦉','🦇','🐝','🦋','🐛','🐌','🐞','🐜','🪲','🦟','🦗','🪳','🕷','🦂','🐢','🐍','🦎','🦖','🦕','🐙','🦑','🦐','🦞','🦀','🐡','🐠','🐟','🐬','🐳','🐋','🦈','🐊','🐅','🐆','🦓','🦍','🦧','🦣','🐘','🦛','🦏','🐪','🐫','🦒','🦘','🦬','🐃','🐂','🐄','🐎','🐖','🐏','🐑','🦙','🐐','🦌','🐕','🐩','🦮','🐕‍🦺','🐈','🪶','🐓','🦃','🦤','🦚','🦜','🦢','🦩','🕊','🐇','🦝','🦨','🦡','🦫','🦦','🦥','🐁','🐀','🐿','🦔'] },
+        { icon: '🍕', label: 'Food', emojis: ['🍏','🍎','🍐','🍊','🍋','🍌','🍉','🍇','🍓','🫐','🍈','🍒','🍑','🥭','🍍','🥥','🥝','🍅','🍆','🥑','🥦','🥬','🥒','🌶','🫑','🧄','🧅','🥔','🍠','🥐','🥯','🍞','🥖','🥨','🧀','🥚','🍳','🧈','🥞','🧇','🥓','🥩','🍗','🍖','🌭','🍔','🍟','🍕','🫓','🥙','🥗','🫕','🥘','🍝','🍜','🍲','🍛','🍣','🍱','🥟','🦪','🍤','🍙','🍚','🍘','🍥','🥮','🍢','🧆','🥜','🍿','🧂','🥫','🍱','🍩','🍪','🎂','🍰','🧁','🥧','🍫','🍬','🍭','🍮','🍯','☕','🍵','🧃','🥤','🧋','🍶','🍺','🍻','🥂','🍷','🥃','🍸','🍹','🧉','🍾'] },
+        { icon: '⚽', label: 'Sports', emojis: ['⚽','🏀','🏈','⚾','🥎','🎾','🏐','🏉','🥏','🎱','🏓','🏸','🏒','🏑','🥍','🏏','🪃','🥅','⛳','🪁','🎣','🤿','🎽','🎿','🛷','🥌','🎯','🪀','🪆','🎮','🕹','🎲','🧩','🎭','🎨','🖼','🎬','🎤','🎧','🎼','🎹','🪘','🥁','🎷','🎺','🎸','🎻','🪗','🎙','📻','📺','📷'] },
+        { icon: '🌍', label: 'Travel', emojis: ['🌍','🌎','🌏','🌐','🗺','🧭','⛰','🏔','🗻','🏕','🏖','🏜','🏝','🏞','🏟','🏛','🏗','🏘','🏚','🏠','🏡','🏢','🏣','🏤','🏥','🏦','🏨','🏩','🏪','🏫','🏬','🏭','🏯','🏰','💒','🗼','🗽','⛪','🕌','🛕','🕍','⛩','🛤','🛣','🗾','🎌','🏳','🏴','🚂','🚃','🚄','🚅','🚆','🚇','🚈','🚉','🚊','🚝','🚞','🚋','🚌','🚍','🚎','🚐','🚑','🚒','🚓','🚔','🚕','🚖','🚗','🚘','🚙','🛻','🚚','🚛','🚜','🏎','🏍','🛵','🛺','🚲','🛴','🛹','🛼','🚏','🛣','🛤','⛽','🚨','🚥','🚦','🛑','🚧','⚓','⛵','🛶','🚤','🛳','⛴','🛥','🚢','✈','🛩','🛫','🛬','🪂','💺','🚁','🚟','🚠','🚡','🛰','🚀','🛸'] },
+        { icon: '💡', label: 'Objects', emojis: ['💡','🔦','🕯','🪔','🧯','🛢','💰','💵','💴','💶','💷','💸','💳','🪙','💹','📈','📉','📊','📋','📌','📍','📎','🖇','📐','📏','🗃','🗄','🗑','🔒','🔓','🔏','🔐','🔑','🗝','🔨','🪓','⛏','⚒','🛠','🗡','⚔','🔫','🪃','🏹','🛡','🪚','🔧','🪛','🔩','⚙','🗜','🔗','⛓','🪝','🧰','🪤','🧲','💊','🩹','🩺','🔬','🔭','🩻','🧿','💈','⚗','🔭','📡','💉','🩸','🧬','🦠','🌡','🧪','🧫','🧲','🔋','🔌','💻','🖥','🖨','⌨','🖱','🖲','💾','💿','📀','🧮','📱','☎','📞','📟','📠','📺','📻','🎙','🎚','🎛','🧭','⏱','⏲','⏰','🕰','⌛','⏳'] },
+        { icon: '💬', label: 'Symbols', emojis: ['💯','🔔','🔕','🎵','🎶','✅','❌','❎','🆗','🆙','🆒','🆕','🆓','🆖','🅰','🅱','🆎','🅾','🆑','🆚','💲','🔱','📛','🔰','♻','✔','☑','🔘','🔲','🔳','⬛','⬜','◼','◻','◾','◽','▪','▫','🔶','🔷','🔸','🔹','🔺','🔻','💠','🔘','🔗','📌','🔝','🔚','🔙','🔛','🔜','⭕','🛑','⛔','📵','🚫','❗','❕','❓','❔','💤','♈','♉','♊','♋','♌','♍','♎','♏','♐','♑','♒','♓','⛎','🔯','🔮','💥','💫','⭐','🌟','✨','🎉','🎊','🎋','🎍','🎎','🎏','🎐','🎁','🎗','🎟','🎫','🎖','🏆','🥇','🥈','🥉','🏅','🎪','🤹','🎭','🩰','🎨','🎬','🎤','🎧','🎼'] },
+    ];
+
+    let activeCategory = 0;
+    let emojiOpen = false;
+
+    function buildEmojiPicker() {
+        const tabs = document.getElementById('emojiTabs');
+        const grid = document.getElementById('emojiGrid');
+        tabs.innerHTML = '';
+        EMOJI_CATEGORIES.forEach((cat, i) => {
+            const btn = document.createElement('button');
+            btn.className = 'emoji-tab' + (i === 0 ? ' active' : '');
+            btn.title = cat.label;
+            btn.textContent = cat.icon;
+            btn.onclick = (e) => { e.stopPropagation(); setEmojiCategory(i); };
+            tabs.appendChild(btn);
+        });
+        renderEmojiGrid(EMOJI_CATEGORIES[0].emojis);
+    }
+
+    function setEmojiCategory(idx) {
+        activeCategory = idx;
+        document.querySelectorAll('.emoji-tab').forEach((t, i) => t.classList.toggle('active', i === idx));
+        document.getElementById('emojiSearch').value = '';
+        renderEmojiGrid(EMOJI_CATEGORIES[idx].emojis);
+    }
+
+    function renderEmojiGrid(emojis) {
+        const grid = document.getElementById('emojiGrid');
+        grid.innerHTML = '';
+        emojis.forEach(em => {
+            const btn = document.createElement('button');
+            btn.className = 'emoji-item';
+            btn.textContent = em;
+            btn.onclick = (e) => { e.stopPropagation(); insertEmoji(em); };
+            grid.appendChild(btn);
+        });
+    }
+
+    function insertEmoji(em) {
+        const input = document.getElementById('msgInput');
+        const pos = input.selectionStart;
+        const before = input.value.substring(0, pos);
+        const after = input.value.substring(pos);
+        input.value = before + em + after;
+        input.focus();
+        const newPos = pos + em.length;
+        input.setSelectionRange(newPos, newPos);
+    }
+
+    window.filterEmoji = (q) => {
+        if (!q.trim()) { renderEmojiGrid(EMOJI_CATEGORIES[activeCategory].emojis); return; }
+        const all = EMOJI_CATEGORIES.flatMap(c => c.emojis);
+        // Simple: just show all emojis (no text metadata); reset to category on clear
+        renderEmojiGrid(all);
+    };
+
+    window.toggleEmojiPicker = (e) => {
+        e.stopPropagation();
+        const picker = document.getElementById('emojiPicker');
+        emojiOpen = !emojiOpen;
+        picker.classList.toggle('open', emojiOpen);
+        if (emojiOpen && !document.getElementById('emojiTabs').children.length) buildEmojiPicker();
+    };
+
+    window.closeAllPopups = (e) => {
+        const picker = document.getElementById('emojiPicker');
+        if (emojiOpen) { picker.classList.remove('open'); emojiOpen = false; }
+    };
 </script>
 </body>
 </html>
